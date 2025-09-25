@@ -1,0 +1,1 @@
+# Exception Queue Payment Fixer Demo\n\nPyQt5 frontend + Flask backend + MongoDB demo project.\nSee backend/ and frontend/ for details.\n
