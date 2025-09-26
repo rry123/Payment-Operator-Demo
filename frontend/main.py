@@ -1,10 +1,12 @@
 import sys
 import requests
+import pyqtgraph as pg
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
-    QMessageBox, QDialog, QLabel, QLineEdit, QFormLayout, QHBoxLayout
+    QMessageBox, QDialog, QLabel, QLineEdit, QFormLayout, QHBoxLayout, QHeaderView, QHBoxLayout , QSplitter
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+
 
 API_BASE = 'http://localhost:5000/api'
 
@@ -30,23 +32,71 @@ class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Operator Login')
+        self.setFixedSize(350, 200)   # Larger fixed size
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f9f9f9;
+            }
+            QLabel {
+                font-size: 14px;
+            }
+            QLineEdit {
+                padding: 6px;
+                font-size: 13px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+            }
+            QPushButton {
+                background-color: #2c7be5;
+                color: white;
+                font-size: 14px;
+                padding: 8px 12px;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #1a5bb8;
+            }
+        """)
+
+        # Title label
+        title = QLabel("Operator Login")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+
+        # Fields
         self.username = QLineEdit()
+        self.username.setPlaceholderText("Enter username")
+
         self.password = QLineEdit()
+        self.password.setPlaceholderText("Enter password")
         self.password.setEchoMode(QLineEdit.Password)
 
         form = QFormLayout()
-        form.addRow('Username', self.username)
-        form.addRow('Password', self.password)
+        form.addRow('Username:', self.username)
+        form.addRow('Password:', self.password)
 
+        # Login button
         btn = QPushButton('Login')
+        btn.setDefault(True)  # pressing Enter triggers this
         btn.clicked.connect(self.do_login)
 
+        # Main layout
         v = QVBoxLayout()
+        v.addWidget(title)
         v.addLayout(form)
-        v.addWidget(btn)
+        v.addWidget(btn, alignment=Qt.AlignCenter)
+        v.setContentsMargins(20, 20, 20, 20)  # padding inside dialog
         self.setLayout(v)
 
         self.result = None
+
+        # Center the dialog on screen
+        self.setGeometry(
+            QApplication.desktop().screen().rect().center().x() - self.width() // 2,
+            QApplication.desktop().screen().rect().center().y() - self.height() // 2,
+            self.width(),
+            self.height()
+        )
 
     def do_login(self):
         u = self.username.text()
@@ -68,11 +118,53 @@ class EditorDialog(QDialog):
     def __init__(self, tx, operator):
         super().__init__()
         self.setWindowTitle('Edit Transaction')
+        self.setFixedSize(400, 400)  # Bigger dialog
         self.tx = tx
         self.operator = operator
         self.init_ui()
 
     def init_ui(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f9f9f9;
+            }
+            QLabel {
+                font-size: 14px;
+            }
+            QLineEdit {
+                padding: 6px;
+                font-size: 13px;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+            }
+            QPushButton {
+                font-size: 14px;
+                padding: 8px 14px;
+                border-radius: 6px;
+            }
+            QPushButton#submitBtn {
+                background-color: #2c7be5;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton#submitBtn:hover {
+                background-color: #1a5bb8;
+            }
+            QPushButton#cancelBtn {
+                background-color: #e0e0e0;
+                color: #333;
+            }
+            QPushButton#cancelBtn:hover {
+                background-color: #c9c9c9;
+            }
+        """)
+
+        # Title
+        title = QLabel("Edit Transaction")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+
+        # Form fields
         layout = QFormLayout()
         self.fn = QLineEdit(self.tx.get('message_type', ''))
         self.sender = QLineEdit(self.tx.get('sender', ''))
@@ -82,25 +174,36 @@ class EditorDialog(QDialog):
         self.amount = QLineEdit(str(self.tx.get('amount', '')))
         self.currency = QLineEdit(self.tx.get('currency', ''))
 
-        layout.addRow('MT', self.fn)
-        layout.addRow('Sender', self.sender)
-        layout.addRow('Receiver', self.receiver)
-        layout.addRow('Beneficiary', self.benef)
-        layout.addRow('IBAN', self.iban)
-        layout.addRow('Amount', self.amount)
-        layout.addRow('Currency', self.currency)
+        layout.addRow('MT:', self.fn)
+        layout.addRow('Sender:', self.sender)
+        layout.addRow('Receiver:', self.receiver)
+        layout.addRow('Beneficiary:', self.benef)
+        layout.addRow('IBAN:', self.iban)
+        layout.addRow('Amount:', self.amount)
+        layout.addRow('Currency:', self.currency)
 
+        # Buttons
         btn_h = QHBoxLayout()
         save_btn = QPushButton('Submit Fix')
+        save_btn.setObjectName("submitBtn")
         save_btn.clicked.connect(self.submit_fix)
+
         cancel_btn = QPushButton('Cancel')
+        cancel_btn.setObjectName("cancelBtn")
         cancel_btn.clicked.connect(self.reject)
+
+        btn_h.addStretch()
         btn_h.addWidget(save_btn)
         btn_h.addWidget(cancel_btn)
+        btn_h.addStretch()
 
+        # Main layout
         v = QVBoxLayout()
+        v.addWidget(title)
         v.addLayout(layout)
+        v.addStretch()
         v.addLayout(btn_h)
+        v.setContentsMargins(20, 20, 20, 20)
         self.setLayout(v)
 
     def submit_fix(self):
@@ -131,29 +234,64 @@ class MainWindow(QWidget):
         super().__init__()
         self.operator = operator
         self.setWindowTitle(f'Exception Queue - Operator: {operator}')
-        self.resize(900, 500)
+        self.resize(1000, 600)
 
+        self.setup_ui()
+
+    def setup_ui(self):
+        # --- Table Setup ---
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(['ID', 'Sender', 'Receiver', 'Beneficiary', 'Amount', 'Error'])
+        self.table.setHorizontalHeaderLabels(
+            ['ID', 'Sender', 'Receiver', 'Beneficiary', 'Amount', 'Error']
+        )
+        self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
-        v = QVBoxLayout()
-        btn_reload = QPushButton('Load Exceptions')
+        # --- Buttons ---
+        btn_reload = QPushButton('🔄 Load Exceptions')
         btn_reload.clicked.connect(self.load_exceptions)
-        btn_processed = QPushButton('Show Processed')
-        btn_processed.clicked.connect(self.show_processed)
-        btn_seed = QPushButton('Seed Sample Data')
-        btn_seed.clicked.connect(self.seed_data)
-        btn_edit = QPushButton('Edit Selected')
+
+        btn_edit = QPushButton('✏️ Edit Selected')
         btn_edit.clicked.connect(self.edit_selected)
 
-        h = QHBoxLayout()
-        h.addWidget(btn_reload)
-        h.addWidget(btn_edit)
-        h.addWidget(btn_processed)
-        h.addWidget(btn_seed)
-        v.addLayout(h)
-        v.addWidget(self.table)
-        self.setLayout(v)
+        btn_processed = QPushButton('✅ Show Processed')
+        btn_processed.clicked.connect(self.show_processed)
+
+        btn_seed = QPushButton('🌱 Seed Sample Data')
+        btn_seed.clicked.connect(self.seed_data)
+        
+        btn_dashboard = QPushButton('📊 Show Dashboard')
+        btn_dashboard.clicked.connect(self.show_dashboard)
+
+        # --- Layout for buttons ---
+        btn_row1 = QHBoxLayout()
+        btn_row1.addWidget(btn_reload)
+        btn_row1.addWidget(btn_seed)
+        btn_row1.addStretch(1)  # push right
+
+        btn_row2 = QHBoxLayout()
+        btn_row2.addWidget(btn_edit)
+        btn_row2.addWidget(btn_processed)
+        btn_row2.addWidget(btn_dashboard)
+        btn_row2.addStretch(1)
+
+        btn_layout = QVBoxLayout()
+        btn_layout.addLayout(btn_row1)
+        btn_layout.addLayout(btn_row2)
+
+        # --- Splitter (Resizable UI) ---
+        splitter = QSplitter(Qt.Vertical)
+        button_container = QWidget()
+        button_container.setLayout(btn_layout)
+        splitter.addWidget(button_container)
+        splitter.addWidget(self.table)
+        splitter.setSizes([100, 500])  # initial size ratio
+
+        # --- Main Layout ---
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(splitter)
+        self.setLayout(main_layout)
 
     def seed_data(self):
         try:
@@ -206,13 +344,157 @@ class MainWindow(QWidget):
             r = requests.get(API_BASE + '/processed', timeout=5)
             data = r.json()
             arr = data.get('processed', [])
-            s = '\n'.join([f"{a.get('processed_by')} | {a.get('message_type')} | {a.get('beneficiary_name')} | {a.get('amount')} {a.get('currency')}" for a in arr])
-            if not s:
-                s = 'No processed transactions'
-            QMessageBox.information(self, 'Processed', s)
+            if not arr:
+                QMessageBox.information(self, 'Processed', 'No processed transactions')
+                return
+
+            # Create a dialog
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Processed Transactions")
+            dlg.resize(800, 400)
+            layout = QVBoxLayout()
+            dlg.setLayout(layout)
+
+            # Table setup
+            table = QTableWidget(len(arr), 5)
+            table.setHorizontalHeaderLabels(['Processed By', 'Message Type', 'Beneficiary', 'Amount', 'Currency'])
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+            # Populate table
+            for row, a in enumerate(arr):
+                table.setItem(row, 0, QTableWidgetItem(a.get('processed_by', '')))
+                table.setItem(row, 1, QTableWidgetItem(a.get('message_type', '')))
+                table.setItem(row, 2, QTableWidgetItem(a.get('beneficiary_name', '')))
+                table.setItem(row, 3, QTableWidgetItem(str(a.get('amount', ''))))
+                table.setItem(row, 4, QTableWidgetItem(a.get('currency', '')))
+
+            layout.addWidget(table)
+
+            # Close button
+            btn_close = QPushButton("Close")
+            btn_close.clicked.connect(dlg.close)
+            layout.addWidget(btn_close)
+
+            dlg.exec_()
+
         except Exception as e:
             QMessageBox.critical(self, 'Error', str(e))
+            
+    def show_dashboard(self):
+        dlg = DashboardDialog()
+        dlg.exec_()  # This opens the dashboard as a modal dialog
 
+
+
+import pyqtgraph as pg
+from PyQt5.QtWidgets import QVBoxLayout, QDialog, QLabel, QPushButton, QMessageBox
+import requests
+
+API_BASE = "http://localhost:5000/api"
+
+class DashboardDialog(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Dashboard")
+        self.resize(900, 700)
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+
+        # --- Summary Labels ---
+        self.total_exceptions_label = QLabel()
+        self.total_processed_label = QLabel()
+        self.processed_today_label = QLabel()
+        self.processed_recent_label = QLabel()
+        self.avg_resolution_label = QLabel()
+
+        for lbl in [self.total_exceptions_label, self.total_processed_label,
+                    self.processed_today_label, self.processed_recent_label,
+                    self.avg_resolution_label]:
+            lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
+            self.layout.addWidget(lbl)
+
+        # --- Charts ---
+        self.top_errors_plot = pg.PlotWidget(title="Top Errors")
+        self.exceptions_by_type_plot = pg.PlotWidget(title="Exceptions by Message Type")
+        self.exceptions_trend_plot = pg.PlotWidget(title="Exceptions Trend (Last 30 Days)")
+        self.processed_by_operator_plot = pg.PlotWidget(title="Processed by Operator")
+
+        for chart in [self.top_errors_plot, self.exceptions_by_type_plot,
+                      self.exceptions_trend_plot, self.processed_by_operator_plot]:
+            chart.setBackground('w')
+            chart.showGrid(x=True, y=True)
+            chart.getAxis('left').setStyle(tickFont=pg.QtGui.QFont("Arial", 10))
+            chart.getAxis('bottom').setStyle(tickFont=pg.QtGui.QFont("Arial", 10))
+
+        self.layout.addWidget(self.top_errors_plot)
+        self.layout.addWidget(self.exceptions_by_type_plot)
+        self.layout.addWidget(self.exceptions_trend_plot)
+        self.layout.addWidget(self.processed_by_operator_plot)
+
+        # --- Close Button ---
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(self.close)
+        self.layout.addWidget(btn_close)
+
+        self.load_data()
+
+    def load_data(self):
+        try:
+            r = requests.get(f"{API_BASE}/dashboard", timeout=5)
+            data = r.json()
+            if not data.get("ok"):
+                QMessageBox.warning(self, "Error", "Could not load dashboard")
+                return
+
+            # --- Summary Labels ---
+            self.total_exceptions_label.setText(f"Total Exceptions: {data.get('total_exceptions', 0)}")
+            self.total_processed_label.setText(f"Total Processed: {data.get('total_processed', 0)}")
+            self.processed_today_label.setText(f"Processed Today: {data.get('processed_today', 0)}")
+            self.processed_recent_label.setText(f"Processed Last 30 Days: {data.get('processed_recent_days', 0)}")
+            avg_sec = int(data.get('avg_resolution_seconds', 0))
+            self.avg_resolution_label.setText(f"Avg Resolution Time: {avg_sec} sec")
+
+            # --- Top Errors Bar Chart ---
+            self.top_errors_plot.clear()
+            top_errors = data.get('top_errors', [])
+            if top_errors:
+                errors = [e['error'] for e in top_errors]
+                counts = [e['count'] for e in top_errors]
+                bar = pg.BarGraphItem(x=range(len(errors)), height=counts, width=0.6, brush='r')
+                self.top_errors_plot.addItem(bar)
+                self.top_errors_plot.getAxis('bottom').setTicks([list(enumerate(errors))])
+
+            # --- Exceptions by Message Type Bar Chart ---
+            self.exceptions_by_type_plot.clear()
+            types = data.get('exceptions_by_message_type', [])
+            if types:
+                msg_types = [t['message_type'] for t in types]
+                counts = [t['count'] for t in types]
+                bar = pg.BarGraphItem(x=range(len(msg_types)), height=counts, width=0.6, brush='b')
+                self.exceptions_by_type_plot.addItem(bar)
+                self.exceptions_by_type_plot.getAxis('bottom').setTicks([list(enumerate(msg_types))])
+
+            # --- Exceptions Trend Line Chart ---
+            self.exceptions_trend_plot.clear()
+            trend = data.get('exceptions_trend', {})
+            if trend:
+                dates = list(trend.keys())
+                counts = list(trend.values())
+                self.exceptions_trend_plot.plot(range(len(dates)), counts, pen=pg.mkPen(color='g', width=2), symbol='o', symbolSize=5)
+                self.exceptions_trend_plot.getAxis('bottom').setTicks([list(enumerate(dates))])
+
+            # --- Processed by Operator Bar Chart (Instead of Pie) ---
+            self.processed_by_operator_plot.clear()
+            processed = data.get('processed_by_operator', [])
+            if processed:
+                names = [p['operator'] for p in processed]
+                counts = [p['count'] for p in processed]
+                bar = pg.BarGraphItem(x=range(len(names)), height=counts, width=0.6, brush='m')
+                self.processed_by_operator_plot.addItem(bar)
+                self.processed_by_operator_plot.getAxis('bottom').setTicks([list(enumerate(names))])
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not load dashboard: {e}")
 # --- Main ---
 def main():
     app = QApplication(sys.argv)

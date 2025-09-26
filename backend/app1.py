@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING, DESCENDING
 from bson.objectid import ObjectId
 from dotenv import load_dotenv 
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 import certifi
 import os
@@ -61,6 +61,88 @@ def validate_transaction(tx):
     if iban and not re.match(r'^[A-Z0-9]{8,34}$', iban.replace(' ', '').upper()):
         errs.append('IBAN format invalid')
     return errs
+
+def get_dashboard_stats(days=30):
+    """
+    Returns a dict of dashboard metrics for the last `days` days.
+    """
+    now = datetime.utcnow()
+    since = now - timedelta(days=days)
+
+    # Counts
+    total_exceptions = exceptions.count_documents({})
+    total_processed = processed.count_documents({})
+    processed_recent = processed.count_documents({'processed_at': {'$gte': since}})
+    # processed today (UTC day)
+    start_of_today = datetime(now.year, now.month, now.day)
+    processed_today = processed.count_documents({'processed_at': {'$gte': start_of_today}})
+
+    # Exceptions by message type
+    ex_by_mt_cursor = exceptions.aggregate([
+        {'$group': {'_id': '$message_type', 'count': {'$sum': 1}}},
+        {'$sort': {'count': -1}}
+    ])
+    exceptions_by_message_type = [{'message_type': doc['_id'] or '(none)', 'count': doc['count']} for doc in ex_by_mt_cursor]
+
+    # Processed count by operator
+    proc_by_op_cursor = processed.aggregate([
+        {'$group': {'_id': '$processed_by', 'count': {'$sum': 1}}},
+        {'$sort': {'count': -1}}
+    ])
+    processed_by_operator = [{'operator': doc['_id'] or '(unknown)', 'count': doc['count']} for doc in proc_by_op_cursor]
+
+    # Top errors (from exceptions.error string)
+    top_errors_cursor = exceptions.aggregate([
+        {'$match': {'error': {'$exists': True}}},
+        {'$group': {'_id': '$error', 'count': {'$sum': 1}}},
+        {'$sort': {'count': -1}},
+        {'$limit': 10}
+    ])
+    top_errors = [{'error': doc['_id'] or '(none)', 'count': doc['count']} for doc in top_errors_cursor]
+
+    # Average resolution time (processed.processed_at - processed.created_at) in seconds
+    # Only consider processed docs that have created_at and processed_at
+    avg_pipeline = [
+        {'$match': {'created_at': {'$exists': True}, 'processed_at': {'$exists': True}, 'processed_at': {'$gte': since}}},
+        {'$project': {'diffMs': {'$subtract': ['$processed_at', '$created_at']}}},
+        {'$group': {'_id': None, 'avgMs': {'$avg': '$diffMs'}}}
+    ]
+    avg_res = list(processed.aggregate(avg_pipeline))
+    avg_resolution_seconds = None
+    if avg_res and avg_res[0].get('avgMs') is not None:
+        avg_resolution_seconds = avg_res[0]['avgMs'] / 1000.0  # ms -> seconds
+
+    # Exceptions trend per day for last `days`
+    trend_pipeline = [
+        {'$match': {'created_at': {'$gte': since}}},
+        {'$group': {
+            '_id': {'$dateToString': {'format': '%Y-%m-%d', 'date': '$created_at'}},
+            'count': {'$sum': 1}
+        }},
+        {'$sort': {'_id': 1}}
+    ]
+    trend_cursor = list(exceptions.aggregate(trend_pipeline))
+    # build date keys and fill zeros for missing days
+    trend = {}
+    for i in range(days):
+        d = (now - timedelta(days=days - 1 - i)).date().isoformat()
+        trend[d] = 0
+    for entry in trend_cursor:
+        trend[entry['_id']] = entry['count']
+
+    return {
+        'ok': True,
+        'generated_at': now.isoformat() + 'Z',
+        'total_exceptions': total_exceptions,
+        'total_processed': total_processed,
+        'processed_recent_days': processed_recent,
+        'processed_today': processed_today,
+        'avg_resolution_seconds': avg_resolution_seconds,
+        'exceptions_by_message_type': exceptions_by_message_type,
+        'processed_by_operator': processed_by_operator,
+        'top_errors': top_errors,
+        'exceptions_trend': trend
+    }
 
 # --- API endpoints ---
 @app.route('/api/ping', methods = ['GET'])
@@ -163,6 +245,22 @@ def seed_data():
     ]
     res = exceptions.insert_many(sample)
     return jsonify({'ok': True, 'inserted_count': len(res.inserted_ids)})
+
+@app.route('/api/dashboard', methods=['GET'])
+def dashboard():
+    # optional ?days=30 parameter (int), bounded between 1 and 365
+    try:
+        days = int(request.args.get('days', 30))
+    except ValueError:
+        days = 30
+    days = max(1, min(days, 365))  # sane bounds
+
+    try:
+        stats = get_dashboard_stats(days=days)
+        return jsonify(stats)
+    except Exception as e:
+        # don't expose stack trace in prod; helpful during dev
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
