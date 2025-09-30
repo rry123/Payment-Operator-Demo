@@ -1,13 +1,18 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pymongo import MongoClient, ASCENDING, DESCENDING
+from pymongo import MongoClient
 from bson.objectid import ObjectId
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
 from datetime import datetime, timedelta
-#from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-import re
+import bcrypt
 import certifi
 import os
+
+
+from flask_jwt_extended import (
+    JWTManager, create_access_token,
+    jwt_required, get_jwt_identity
+)
 
 load_dotenv()
 
@@ -15,6 +20,9 @@ MONGO_URI = os.getenv('MONGO_URI')
 
 app = Flask(__name__)
 CORS(app)
+
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
+jwt = JWTManager(app)
 
 # MongoDB connection (local)
 client = MongoClient(
@@ -33,6 +41,7 @@ db = client['payment_fixer_db']
 exceptions = db['exceptions']
 processed = db['processed']
 audit = db['audit_logs']
+users = db['users'] 
 
 # --- Simple operator "auth" (demo only) ---
 OPERATORS = {
@@ -146,6 +155,29 @@ def get_dashboard_stats(days=5):
     }
 
 # --- API endpoints ---
+@app.route('/api/signup', methods=['POST'])
+def signup():
+    data = request.json
+    name = data.get('name')
+    username = data.get('username')
+    password = data.get('password')
+
+    # If you forget to return here, Flask returns None by default
+    if not all([name, username, password]):
+        return jsonify({"ok": False, "error": "Missing fields"}), 400
+
+    # You may have logic here but forgot to return anything at the end
+    hashed_pw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    users.insert_one({
+        "name": name,
+        "username": username,
+        "password": hashed_pw,
+        "created_at": datetime.utcnow()
+    })
+
+    # ⚠️ Must return something!
+    return jsonify({"ok": True, "message": "User registered successfully"})
+
 @app.route('/api/ping', methods = ['GET'])
 def ping():
     return jsonify({'ok': True, 'message': 'ping'})
@@ -153,11 +185,30 @@ def ping():
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json or {}
-    user = data.get('username')
-    pwd = data.get('password')
-    if user in OPERATORS and OPERATORS[user] == pwd:
-        return jsonify({'ok': True, 'username': user})
-    return jsonify({'ok': False, 'error': 'Invalid credentials'}), 401
+    username = data.get("username")
+    password = data.get("password")
+
+    # Check if fields are provided
+    if not username or not password:
+        return jsonify({"ok": False, "error": "Username and password required"}), 400
+
+    # Find user in DB
+    user = users.find_one({"username": username})
+    if not user:
+        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+
+    # Check password
+    if not bcrypt.checkpw(password.encode("utf-8"), user["password"]):
+        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+
+    # Create JWT token
+    access_token = create_access_token(identity=str(user["_id"]))
+
+    return jsonify({
+        "ok": True,
+        "token": access_token,
+        "username": username
+    })
 
 @app.route('/api/exceptions', methods=['GET'])
 def get_exceptions():

@@ -6,3 +6,6 @@ transformers
 torch 
 transformers
 accelerate
+flask-jwt-extended
+bcrypt
+

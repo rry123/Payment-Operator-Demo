@@ -37,13 +37,15 @@ class LoginThread(QThread):
             self.finished.emit(r.json())
         except Exception as e:
             self.error.emit(str(e))
+            
+
 
 # --- Login Dialog ---
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Operator Login')
-        self.setFixedSize(350, 200)   # Larger fixed size
+        self.setFixedSize(450, 250)   # Larger fixed size
         self.setStyleSheet("""
             QDialog {
                 background-color: #f9f9f9;
@@ -91,15 +93,23 @@ class LoginDialog(QDialog):
         btn.setDefault(True)  # pressing Enter triggers this
         btn.clicked.connect(self.do_login)
 
+        signup_btn = QPushButton('Create Account')
+        signup_btn.clicked.connect(self.open_signup)
+        
+        # Buttons layout side by side
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(btn)
+        buttons_layout.addWidget(signup_btn)
+        buttons_layout.setSpacing(20)
+        buttons_layout.setAlignment(Qt.AlignCenter)
+
         # Main layout
         v = QVBoxLayout()
         v.addWidget(title)
         v.addLayout(form)
-        v.addWidget(btn, alignment=Qt.AlignCenter)
-        v.setContentsMargins(20, 20, 20, 20)  # padding inside dialog
+        v.addLayout(buttons_layout)  # add the side-by-side buttons layout
+        v.setContentsMargins(20, 20, 20, 20)
         self.setLayout(v)
-
-        self.result = None
 
         # Center the dialog on screen
         self.setGeometry(
@@ -108,6 +118,8 @@ class LoginDialog(QDialog):
             self.width(),
             self.height()
         )
+        
+        
 
     def do_login(self):
         u = self.username.text()
@@ -123,6 +135,98 @@ class LoginDialog(QDialog):
             self.accept()
         else:
             QMessageBox.warning(self, 'Login failed', data.get('error', 'Unknown'))
+            
+    def open_signup(self):
+        dlg = SignupDialog()
+        dlg.exec_()
+
+# --- Signup Thread ---
+class SignupThread(QThread):
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, name, username, password):
+        super().__init__()
+        self.name = name
+        self.username = username
+        self.password = password
+
+    def run(self):
+        try:
+            r = requests.post(API_BASE + '/signup', json={
+                'name': self.name,
+                'username': self.username,
+                'password': self.password
+            }, timeout=5)
+            self.finished.emit(r.json())
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+# --- Signup Dialog ---
+class SignupDialog(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Create Account')
+        self.setFixedSize(350, 250)
+
+        self.setStyleSheet("""
+            QDialog { background-color: #f9f9f9; }
+            QLabel { font-size: 14px; }
+            QLineEdit { padding: 6px; font-size: 13px; border: 1px solid #ccc; border-radius: 5px; }
+            QPushButton { background-color: #28a745; color: white; font-size: 14px; padding: 8px 12px; border-radius: 6px; }
+            QPushButton:hover { background-color: #218838; }
+        """)
+
+        title = QLabel("Create Account")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+
+        self.name = QLineEdit()
+        self.name.setPlaceholderText("Enter full name")
+        self.username = QLineEdit()
+        self.username.setPlaceholderText("Enter username")
+        self.password = QLineEdit()
+        self.password.setPlaceholderText("Enter password")
+        self.password.setEchoMode(QLineEdit.Password)
+
+        form = QFormLayout()
+        form.addRow('Name:', self.name)
+        form.addRow('Username:', self.username)
+        form.addRow('Password:', self.password)
+
+        btn = QPushButton("Sign Up")
+        btn.clicked.connect(self.do_signup)
+
+        v = QVBoxLayout()
+        v.addWidget(title)
+        v.addLayout(form)
+        v.addWidget(btn, alignment=Qt.AlignCenter)
+        v.setContentsMargins(20, 20, 20, 20)
+        self.setLayout(v)
+
+        self.result = None
+
+    def do_signup(self):
+        n = self.name.text()
+        u = self.username.text()
+        p = self.password.text()
+        if not all([n, u, p]):
+            QMessageBox.warning(self, "Error", "All fields are required!")
+            return
+
+        self.thread = SignupThread(n, u, p)
+        self.thread.finished.connect(self.on_signup_result)
+        self.thread.error.connect(lambda e: QMessageBox.critical(self, 'Error', e))
+        self.thread.start()
+
+    def on_signup_result(self, data):
+        if data.get("ok"):
+            QMessageBox.information(self, "Success", "Account created successfully! Please login.")
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Signup failed", data.get("error", "Unknown error"))
+
 
 # --- Editor Dialog ---
 class EditorDialog(QDialog):
