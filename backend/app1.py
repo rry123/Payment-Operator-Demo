@@ -62,7 +62,7 @@ def validate_transaction(tx):
         errs.append('IBAN format invalid')
     return errs
 
-def get_dashboard_stats(days=30):
+def get_dashboard_stats(days=5):
     """
     Returns a dict of dashboard metrics for the last `days` days.
     """

@@ -1,2 +1,6 @@
 PyQt5>=5.15
 requests>=2.25
+openpyxl
+reportlab
+transformers
+

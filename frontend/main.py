@@ -1,11 +1,18 @@
 import sys
 import requests
+import reportlab
 import pyqtgraph as pg
+import openpyxl
+from PyQt5.QtWidgets import QFileDialog
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
     QMessageBox, QDialog, QLabel, QLineEdit, QFormLayout, QHBoxLayout, QHeaderView, QHBoxLayout , QSplitter
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from datetime import datetime
 
 
 API_BASE = 'http://localhost:5000/api'
@@ -263,6 +270,10 @@ class MainWindow(QWidget):
         
         btn_dashboard = QPushButton('📊 Show Dashboard')
         btn_dashboard.clicked.connect(self.show_dashboard)
+        
+        
+        btn_export_pdf = QPushButton('📝 Export to PDF')
+        btn_export_pdf.clicked.connect(self.export_to_pdf)
 
         # --- Layout for buttons ---
         btn_row1 = QHBoxLayout()
@@ -274,6 +285,7 @@ class MainWindow(QWidget):
         btn_row2.addWidget(btn_edit)
         btn_row2.addWidget(btn_processed)
         btn_row2.addWidget(btn_dashboard)
+        btn_row2.addWidget(btn_export_pdf)
         btn_row2.addStretch(1)
 
         btn_layout = QVBoxLayout()
@@ -385,12 +397,48 @@ class MainWindow(QWidget):
         dlg.exec_()  # This opens the dashboard as a modal dialog
 
 
+            
+    def export_to_pdf(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save to PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+
+        c = canvas.Canvas(path, pagesize=letter)
+        width, height = letter
+        y = height - 40
+
+        # Write headers
+        headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+        c.drawString(40, y, " | ".join(headers))
+        y -= 20
+
+        # Write table data
+        for row in range(self.table.rowCount()):
+            row_data = []
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                row_data.append(item.text() if item else "")
+            c.drawString(40, y, " | ".join(row_data))
+            y -= 20
+            if y < 40:  # new page if space runs out
+                c.showPage()
+                y = height - 40
+
+        c.save()
+
+
 
 import pyqtgraph as pg
 from PyQt5.QtWidgets import QVBoxLayout, QDialog, QLabel, QPushButton, QMessageBox
 import requests
+from reportlab.lib.utils import ImageReader
+from pyqtgraph.exporters import ImageExporter
+import tempfile
+
 
 API_BASE = "http://localhost:5000/api"
+
+
 
 class DashboardDialog(QDialog):
     def __init__(self):
@@ -431,9 +479,11 @@ class DashboardDialog(QDialog):
         self.layout.addWidget(self.exceptions_trend_plot)
         self.layout.addWidget(self.processed_by_operator_plot)
 
-        # --- Close Button ---
+        # --- Buttons ---
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.close)
+
+        
         self.layout.addWidget(btn_close)
 
         self.load_data()
@@ -441,22 +491,22 @@ class DashboardDialog(QDialog):
     def load_data(self):
         try:
             r = requests.get(f"{API_BASE}/dashboard", timeout=5)
-            data = r.json()
-            if not data.get("ok"):
+            self.data = r.json()  # store data for report generation
+            if not self.data.get("ok"):
                 QMessageBox.warning(self, "Error", "Could not load dashboard")
                 return
 
             # --- Summary Labels ---
-            self.total_exceptions_label.setText(f"Total Exceptions: {data.get('total_exceptions', 0)}")
-            self.total_processed_label.setText(f"Total Processed: {data.get('total_processed', 0)}")
-            self.processed_today_label.setText(f"Processed Today: {data.get('processed_today', 0)}")
-            self.processed_recent_label.setText(f"Processed Last 30 Days: {data.get('processed_recent_days', 0)}")
-            avg_sec = int(data.get('avg_resolution_seconds', 0))
+            self.total_exceptions_label.setText(f"Total Exceptions: {self.data.get('total_exceptions', 0)}")
+            self.total_processed_label.setText(f"Total Processed: {self.data.get('total_processed', 0)}")
+            self.processed_today_label.setText(f"Processed Today: {self.data.get('processed_today', 0)}")
+            self.processed_recent_label.setText(f"Processed Last 30 Days: {self.data.get('processed_recent_days', 0)}")
+            avg_sec = int(self.data.get('avg_resolution_seconds', 0))
             self.avg_resolution_label.setText(f"Avg Resolution Time: {avg_sec} sec")
 
             # --- Top Errors Bar Chart ---
             self.top_errors_plot.clear()
-            top_errors = data.get('top_errors', [])
+            top_errors = self.data.get('top_errors', [])
             if top_errors:
                 errors = [e['error'] for e in top_errors]
                 counts = [e['count'] for e in top_errors]
@@ -464,28 +514,18 @@ class DashboardDialog(QDialog):
                 self.top_errors_plot.addItem(bar)
                 self.top_errors_plot.getAxis('bottom').setTicks([list(enumerate(errors))])
 
-            # --- Exceptions by Message Type Bar Chart ---
+            # --- Exceptions by Message Type ---
             self.exceptions_by_type_plot.clear()
-            types = data.get('exceptions_by_message_type', [])
+            types = self.data.get('exceptions_by_message_type', [])
             if types:
                 msg_types = [t['message_type'] for t in types]
                 counts = [t['count'] for t in types]
                 bar = pg.BarGraphItem(x=range(len(msg_types)), height=counts, width=0.6, brush='b')
                 self.exceptions_by_type_plot.addItem(bar)
                 self.exceptions_by_type_plot.getAxis('bottom').setTicks([list(enumerate(msg_types))])
-
-            # --- Exceptions Trend Line Chart ---
-            self.exceptions_trend_plot.clear()
-            trend = data.get('exceptions_trend', {})
-            if trend:
-                dates = list(trend.keys())
-                counts = list(trend.values())
-                self.exceptions_trend_plot.plot(range(len(dates)), counts, pen=pg.mkPen(color='g', width=2), symbol='o', symbolSize=5)
-                self.exceptions_trend_plot.getAxis('bottom').setTicks([list(enumerate(dates))])
-
-            # --- Processed by Operator Bar Chart (Instead of Pie) ---
+                 # --- Processed by Operator ---
             self.processed_by_operator_plot.clear()
-            processed = data.get('processed_by_operator', [])
+            processed = self.data.get('processed_by_operator', [])
             if processed:
                 names = [p['operator'] for p in processed]
                 counts = [p['count'] for p in processed]
@@ -495,6 +535,13 @@ class DashboardDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not load dashboard: {e}")
+            
+
+
+    
+
+    
+            
 # --- Main ---
 def main():
     app = QApplication(sys.argv)
