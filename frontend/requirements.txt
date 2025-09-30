@@ -3,4 +3,6 @@ requests>=2.25
 openpyxl
 reportlab
 transformers
-
+torch 
+transformers
+accelerate

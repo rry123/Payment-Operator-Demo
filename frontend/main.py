@@ -3,9 +3,13 @@ import requests
 import reportlab
 import pyqtgraph as pg
 import openpyxl
+
+from openpyxl import Workbook
+
 from PyQt5.QtWidgets import QFileDialog
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
@@ -274,11 +278,18 @@ class MainWindow(QWidget):
         
         btn_export_pdf = QPushButton('📝 Export to PDF')
         btn_export_pdf.clicked.connect(self.export_to_pdf)
+        
+        btn_export_excel = QPushButton('📊 Export to Excel')
+        btn_export_excel.clicked.connect(self.export_to_excel)
+        
+        btn_operator_stats = QPushButton('📈 Operator Stats')
+        btn_operator_stats.clicked.connect(self.show_operator_stats)
 
         # --- Layout for buttons ---
         btn_row1 = QHBoxLayout()
         btn_row1.addWidget(btn_reload)
         btn_row1.addWidget(btn_seed)
+        btn_row1.addWidget(btn_operator_stats)
         btn_row1.addStretch(1)  # push right
 
         btn_row2 = QHBoxLayout()
@@ -286,6 +297,7 @@ class MainWindow(QWidget):
         btn_row2.addWidget(btn_processed)
         btn_row2.addWidget(btn_dashboard)
         btn_row2.addWidget(btn_export_pdf)
+        btn_row2.addWidget(btn_export_excel)
         btn_row2.addStretch(1)
 
         btn_layout = QVBoxLayout()
@@ -392,6 +404,56 @@ class MainWindow(QWidget):
         except Exception as e:
             QMessageBox.critical(self, 'Error', str(e))
             
+    def show_operator_stats(self):
+        try:
+            url = f"{API_BASE}/operator_stats"
+            response = requests.get(url)
+            if response.status_code == 200:
+                data = response.json()
+
+                if not data.get("ok") or "stats" not in data:
+                    QMessageBox.warning(self, "No Data", "No stats available.")
+                    return
+
+                stats = data["stats"]
+
+                # Create popup window
+                stats_win = QWidget()
+                stats_win.setWindowTitle("📈 Operator Stats")
+                stats_win.resize(600, 400)
+
+                # Table with 3 columns: Operator, Count, Avg Resolution (hours)
+                table = QTableWidget(len(stats), 3)
+                table.setHorizontalHeaderLabels(["Operator", "Processed Count", "Avg Resolution (hrs)"])
+                table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+                for row, entry in enumerate(stats):
+                    operator = entry.get("operator", "-")
+                    count = entry.get("count", 0)
+                    avg_res_seconds = entry.get("avg_resolution_seconds", 0)
+
+                    # convert seconds → hours with 2 decimals
+                    avg_res_hours = round(avg_res_seconds / 3600, 2)
+
+                    table.setItem(row, 0, QTableWidgetItem(str(operator)))
+                    table.setItem(row, 1, QTableWidgetItem(str(count)))
+                    table.setItem(row, 2, QTableWidgetItem(f"{avg_res_hours} hrs"))
+
+                layout = QVBoxLayout()
+                layout.addWidget(table)
+                stats_win.setLayout(layout)
+                stats_win.show()
+
+                # Keep reference so it doesn’t close immediately
+                self.stats_window = stats_win
+
+            else:
+                QMessageBox.critical(self, "Error", f"Failed to fetch stats! ({response.status_code})")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not load operator stats:\n{e}")
+
+            
     def show_dashboard(self):
         dlg = DashboardDialog()
         dlg.exec_()  # This opens the dashboard as a modal dialog
@@ -425,6 +487,32 @@ class MainWindow(QWidget):
                 y = height - 40
 
         c.save()
+    
+    def export_to_excel(self):
+        # Open save file dialog
+        path, _ = QFileDialog.getSaveFileName(self, "Save to Excel", "", "Excel Files (*.xlsx)")
+        if not path:
+            return
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Exceptions"
+
+        # Write headers
+        headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+        ws.append(headers)
+
+        # Write table data
+        for row in range(self.table.rowCount()):
+            row_data = []
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                row_data.append(item.text() if item else "")
+            ws.append(row_data)
+
+        # Save workbook
+        wb.save(path)
+        print(f"✅ Data exported to {path}")
 
 
 

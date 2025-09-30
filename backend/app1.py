@@ -4,6 +4,7 @@ from pymongo import MongoClient, ASCENDING, DESCENDING
 from bson.objectid import ObjectId
 from dotenv import load_dotenv 
 from datetime import datetime, timedelta
+#from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import re
 import certifi
 import os
@@ -261,6 +262,61 @@ def dashboard():
     except Exception as e:
         # don't expose stack trace in prod; helpful during dev
         return jsonify({'ok': False, 'error': str(e)}), 500
+    
+    
+
+
+# report_generator = pipeline("text2text-generation", model="facebook/bart-large-cnn")
+
+
+
+# @app.route('/api/generate_report', methods=['POST'])
+# def generate_report():
+#     data = request.json
+#     if not data:
+#         return jsonify({"ok": False, "error": "No data provided"}), 400
+
+#     # Convert structured data into a readable prompt
+#     prompt = f"""
+# Dashboard data:
+# Total exceptions: {data['total_exceptions']}
+# Total processed: {data['total_processed']}
+# Processed in last {data.get('processed_recent_days',7)} days: {data['processed_recent_days']}
+# Processed today: {data['processed_today']}
+# Average resolution time (seconds): {data['avg_resolution_seconds']}
+# Exceptions by message type: {', '.join([f"{e['message_type']} ({e['count']})" for e in data['exceptions_by_message_type']])}
+# Processed by operator: {', '.join([f"{p['operator']} ({p['count']})" for p in data['processed_by_operator']])}
+# Top errors: {', '.join([f"{t['error']} ({t['count']})" for t in data['top_errors']])}
+# Exceptions trend last 7 days: {', '.join([f"{k}: {v}" for k,v in data['exceptions_trend'].items()])}
+
+# Generate a concise, readable report from the above data in under 100 words. Do not repeat instructions.
+# """
+
+
+#     try:
+#         report = report_generator(prompt, max_length=1000, min_length=50, do_sample=False)
+#         return jsonify({"ok": True, "report": report[0]['generated_text']})
+#     except Exception as e:
+#         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route('/api/operator_stats', methods=['GET'])
+def operator_stats():
+    pipeline = [
+        {"$group": {
+            "_id": "$processed_by",
+            "count": {"$sum": 1},
+            "avg_resolution": {"$avg": {"$subtract": ["$processed_at", "$created_at"]}}
+        }},
+        {"$sort": {"count": -1}}
+    ]
+    results = []
+    for doc in processed.aggregate(pipeline):
+        results.append({
+            "operator": doc["_id"],
+            "count": doc["count"],
+            "avg_resolution_seconds": doc["avg_resolution"] / 1000.0 if doc.get("avg_resolution") else None
+        })
+    return jsonify({"ok": True, "stats": results})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
